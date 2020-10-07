@@ -1,0 +1,31 @@
+data{
+  int N1;
+  int N2;
+  int N3;
+  real y1[N1];
+  real y2[N2];
+  real y3[N3];
+}
+
+parameters{
+  real mu0;
+  real mu[3];
+  real<lower = 0> sigma0;
+  real<lower = 0> sigma[3];
+}
+
+model{
+  for (i in 1:3){
+    mu[i] ~ normal(mu0, sigma0);
+  }
+  y1 ~ normal(mu[1], sigma[1]);
+  y2 ~ normal(mu[2], sigma[2]);
+  y3 ~ normal(mu[3], sigma[3]);
+}
+
+generated quantities{
+  real y_pred[3];
+  for (i in 1:3){
+    y_pred[i] = normal_rng(mu[i], sigma[i]);
+  }
+}
