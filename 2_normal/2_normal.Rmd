@@ -1,0 +1,366 @@
+---
+title: "II. Normal Distribution"
+author: "차서연"
+date: 'Sep, 2020'
+output: 
+  html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = './2_normal')
+```
+
+## 정규분포의 추정
+**Inference for a Normal Distribution**
+
+### 문제상황 
+
+> 자동차 통행 속도는 각각 서로 다른 정규분포를 따르지 않을까?
+
+* 서울시 2020년 8월 차량통행속도 데이터를 불러와 강남구 18시 차량통행속도의 분포를 추정하자
+  * 데이터 출처: https://topis.seoul.go.kr/refRoom/openRefRoom_1.do
+* 속도 데이터 $y$가 $y \sim N(\mu,\sigma^2$) 의 정규분포를 따를 것이라는 합리적인 가정 아래, 
+* 평균 $\mu$와 분산 $\sigma^2$를 **Stan**을 통해 베이지안 방법으로 추정해보자 
+
+---
+
+```{r, warning=FALSE, message=FALSE}
+library(dplyr)
+library(rstan)
+```
+
+### Import data
+```{r}
+data <- read.csv('velocity.csv', header = T)
+head(data)
+colnames(data)[13] <- "speed"
+```
+
+```{r setup5, include=FALSE}
+opts_chunk$set(out.width = "75%", 
+               fig.align = "center")
+```
+
+### Explore data 
+```{r}
+hist(data$speed)
+```
+
+* 60 km/h를 넘는 속도 데이터가 많은 상황
+
+```{r image2, include=FALSE}
+include_graphics(c("news.png"))
+```
+
+* 가장 교통량이 많은 강남대로의 오후 6시 속도 분포만을 추정하자
+```{r}
+kang <- data %>% filter(도로명 == "강남대로")
+hist(kang$speed, breaks = 20)
+```
+
+* 정규분포로 이를 적합
+
+$$y \sim N(\mu, \sigma^2)$$
+
+---
+
+## Run stan
+
+### Stan Code
+
+```{r}
+# model
+code1 <- '
+data{
+  int N; // number of obsverations 
+  real y[N]; // speed value
+}
+
+parameters{
+  real mu; // mean
+  real<lower=0> sigma; // standard deviation
+}
+
+model{
+  y ~ normal(mu, sigma); // normal likelihood
+}
+
+generated quantities{
+  real y_pred;
+  y_pred = normal_rng(mu,sigma);
+}
+'
+# compile models
+model1 <- stan_model(model_code = code1, model_name="stanmodel")
+```
+
+
+### Sampling
+```{r, results="hide"}
+list1 <- list(N=nrow(kang), y = kang$speed)
+fit1 <- sampling(model1, data = list1, seed = 123)
+```
+
+```{r}
+print(fit1, probs = c(0.025,0.5,0.975))
+```
+* 추정된 $\mu$, $\sigma$ 값
+* `y_pred`: 추정된 모수를 바탕으로 생성된 예측 값
+
+### Converged?
+```{r}
+fit1
+```
+* 충분히 큰 n_eff
+* 1에 가까운 Rhat 
+
+### Traceplot
+```{r}
+traceplot(fit1, inc_warmup = TRUE)
+```
+
+* Traceplot을 통해 chain 이 잘 섞이고, 모수가 잘 수렴했음을 알 수 있다. 
+
+### Estimated Parameter 
+```{r}
+plot(fit1, pars = c("mu"))
+plot(fit1, pars = c("sigma"))
+```
+* $\mu$, $\sigma$의 80%, 95% 베이즈 신뢰구간
+
+
+### Extract posterior draws with `extract()` function
+```{r}
+res <- extract(fit1)
+## save y_pred posterior draws
+y_pred <- res$y_pred
+hist(res$y_pred, breaks = 30)
+```
+
+* $\hat{\mu}, \hat{\sigma}$로 구한 예측값 `y_pred`의 히스토그램 
+
+## Plotting with `bayesplot` package
+```{r, message=FALSE, warning=FALSE}
+library(bayesplot)
+```
+
+```{r}
+mcmc_hist(fit1, "y_pred") # equivalent expression
+```
+
+### `mcmc_areas()`: estimated posterior density curves
+```{r}
+mcmc_areas(fit1, "y_pred", prob = 0.95) +
+  ggtitle("Posterior distribution of y_pred", "with median and 95% interval")
+```
+
+----
+
+## **Frequentist vs. Bayesian**
+
+### Frequentist way
+
+* P-value를 통한 $\mu$의 검정
+
+$$H_0 : \mu = 20 \  \  vs. \ H_1: \mu \neq 20$$
+
+```{r}
+t.test(kang$speed, mu = 20)
+```
+* P-value = 0.0279 : *귀무가설이 참*일때, 즉 $\mu = 20$이라는 가정하에 우리의 데이터가 관찰될 확률이 0.0279로 0.05보다 작으므로 귀무가설을 기각한다.  
+* 95% 신뢰구간: (17.204 , 19.83374)
+  * 모수 $\mu$가 (17.204 , 19.83374)에 포함될 확률이 95%다. **(X)** 잘못된 해석!
+  * 모수 $\mu$의 95% 신뢰구간: $\mu \in \bar{y} \pm t_{n-1}(0.025) \frac{s}{\sqrt{n}}$
+  * 이러한 방식으로 계속 신뢰구간을 구했을 때, 그 중 95%는 모수 $\mu$를 포함할 것이다. 
+  * 즉 빈도주의 접근의 신뢰구간은 Repeated Sampling 관점에서 해석되는 것으로, 모수 $\mu$에 대한 어떤 확률적 진술(probability statement)도 하지 못한다. 
+  
+
+```{r}
+# Frequentist approach
+# Confidence Interval of mu (data # = 62)
+upper <- mean(kang$speed) + qt(0.975,61) * sd(kang$speed)/sqrt(62)
+lower <- mean(kang$speed) - qt(0.975,61) * sd(kang$speed)/sqrt(62)
+ci <- c(lower, upper)
+```
+
+### Bayesian Way
+
+- 모수에 대한 직접적인 확률적 진술이 가능하다. 
+- 데이터의 적용은 **prior** -> **posterior**로 불확실성(uncertainty)을 줄여나가며, 
+- 모수가 갖는 불확실성을 확률적으로 수량화(quantify)할 수 있다.
+
+### 95% Bayesian credible interval(95% 베이즈 신뢰구간/신용구간) (<-> 신뢰구간)
+
+- 모수 $\mu$에 대한 95% 신용구간:
+```{r}
+quantile(res$mu, c(0.025, 0.975))
+```
+- 모수 $\mu$가 (17.227, 19.891) 범위에 포함될 확률이 95%다. 
+
+
+### Posterior Probability (<-> p-value)
+
+```{r}
+# prob(speed > 20)
+sum(res$mu > 20)/4000
+```
+* 평균 모수 $\mu$가 20보다 클 확률이 0.0162다. 
+
+----
+
+## 인접한 도로의 속도 분포 추정
+
+* 강남대로, 테헤란로, 논현로는 서로 인접해있는 도로들이다. 
+* 서로 인접해있으므로 속도 분포가 유사할 것이라는 가정에 기반하여 이들의 속도 분포를 계층모형으로 추론하자 
+
+```{r}
+kang <- data %>% filter(도로명 == "강남대로")
+teh <-  data %>% filter(도로명 == "테헤란로")
+non <- data %>% filter(도로명 == "논현로")
+```
+
+```{r}
+boxplot(kang$speed, teh$speed, non$speed)
+```
+
+* 어느정도 유사성을 갖는 3개 도로의 속도 관찰값
+* 3개의 속도 평균 모수 $\mu_1, \mu_2, \mu_3$ 가 동일한 분포에서 나왔다는 **계층모형**의 가정 가능 
+* 계층 구조 아래 서로 다른 3개의 정규분포 추정
+
+
+$$y_1 \sim N(\mu_1, \sigma_1 ^2) \ , \\ y_2 \sim N(\mu_2, \sigma_2 ^2) \ , \\ y_3 \sim N(\mu_3, \sigma_3 ^2) \ ,\\  \mu_i \sim N(\mu_0, \sigma_0) \ , i = 1,2,3 $$
+
+### Stan code
+
+```{r}
+# model
+code2 <- '
+data{
+  int N1;
+  int N2;
+  int N3;
+  vector[N1] y1;
+  vector[N2] y2;
+  vector[N3] y3;
+}
+
+
+parameters{
+  real mu0;
+  real<lower = 0> sigma0;
+  real mu[3];
+  real<lower = 0> sigma[3];
+}
+
+model{
+  for (i in 1:3){
+    mu[i] ~ normal(mu0, sigma0); // hierarchical assumption
+  }
+  y1 ~ normal(mu[1], sigma[1]);
+  y2 ~ normal(mu[2], sigma[2]);
+  y3 ~ normal(mu[3], sigma[3]);
+}
+
+
+generated quantities{
+  real y_pred[3];
+  for (i in 1:3){
+    y_pred[i] = normal_rng(mu[i], sigma[i]);
+  }
+}
+'
+# compile models
+model2 <- stan_model(model_code = code2, model_name="stanmodel")
+```
+
+```{r, results="hide"}
+list2 <- list(N1 = nrow(kang), N2 = nrow(teh), N3 = nrow(non),
+              y1 = kang$speed, y2 = teh$speed, y3 = non$speed)
+fit2 <- sampling(model2, data = list2, 
+                 control=list(adapt_delta=0.95))
+```
+
+* MCMC가 수렴하지 않는 현상 + `mu0`, `sigma0`의 n_eff가 낮다. 
+```{r}
+print(fit2, probs = c(0.025,0.5,0.975))
+mcmc_trace(fit2, regex_pars ="mu")
+mcmc_trace(fit2, pars ="sigma0")
+```
+
+
+* 정규분포보다 꼬리가 긴 코시분포(Cauchy distribution)를 $\mu_i$들의 분포로 사용
+
+$$\mu_i \sim Cauchy(\mu_0, \sigma_0) \ , i = 1,2,3 $$
+
+```{r}
+# model
+code3 <- '
+data{
+  int N1;
+  int N2;
+  int N3;
+  vector[N1] y1;
+  vector[N2] y2;
+  vector[N3] y3;
+}
+
+parameters{
+  real mu0;
+  real<lower = 0> sigma0;
+  real mu[3];
+  real<lower = 0> sigma[3];
+}
+
+model{
+  for (i in 1:3){
+    mu[i] ~ cauchy(mu0, sigma0); // Cauchy distribution
+  }
+  y1 ~ normal(mu[1], sigma[1]);
+  y2 ~ normal(mu[2], sigma[2]);
+  y3 ~ normal(mu[3], sigma[3]);
+}
+
+
+generated quantities{
+  real y_pred[3];
+  for (i in 1:3){
+    y_pred[i] = normal_rng(mu[i], sigma[i]);
+  }
+}
+'
+# compile models
+model3 <- stan_model(model_code = code3, model_name="stanmodel")
+```
+
+```{r, results="hide"}
+# cauchy 
+fit3 <- sampling(model3, data = list2)
+```
+
+
+```{r}
+print(fit3, probs = c(0.025,0.5,0.975))
+```
+
+* Chain이 Normal을 썼을 때보다 비교적 잘 수렴했다. 
+
+```{r}
+mcmc_trace(fit3, regex_pars ="mu0")
+```
+
+
+### `mcmc_areas()` of $\mu$
+
+```{r}
+mcmc_areas(fit3, pars = c("mu[1]","mu[2]","mu[3]"), prob = 0.8)
+```
+
+### `mcmc_areas()` of `y_pred`
+```{r}
+mcmc_areas(fit3, pars = c("y_pred[1]", "y_pred[2]", "y_pred[3]"))
+```
+
+-----
