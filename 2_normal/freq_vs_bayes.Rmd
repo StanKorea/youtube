@@ -1,0 +1,136 @@
+---
+title: "Frequentist vs Bayesian"
+author: "차서연"
+date: 'Dec 30, 2020'
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = 'C:/Users/joych/Desktop/STAN/youtube/2_normal')
+```
+
+$$y \sim N(\mu, \sigma^2)$$
+
+### Data
+```{r}
+data <- read.csv('velocity.csv', header = T)
+head(data)
+colnames(data)[13] <- "speed"
+```
+
+```{r}
+gangnam <- data[data$도로명 == "강남대로",]
+hist(gangnam$speed, breaks = 20)
+```
+
+### Frequentist inference
+
+* t-test를 통한 평균 $\mu$의 검정
+
+$$H_0 : \mu = 20 \  \  vs. \ H_1: \mu \neq 20$$
+
+```{r}
+t.test(gangnam$speed, mu = 20)
+```
+* **p-value** = 0.0279 
+  * 평균 $\mu=20$일 확률이 0.0279다. **(X)**
+  * *귀무가설이 참*일때, 즉 $\mu = 20$이라는 가정하에 위의 데이터가 관찰될 확률이 0.0279로 0.05보다 작으므로 귀무가설을 기각하고, $\mu = 20$이 아니라는 충분한 통계적 근거가 있다.
+* **95% 신뢰구간**: (17.204 , 19.83374)
+  * 모수 $\mu$가 (17.204 , 19.83374)에 포함될 확률이 95%다. **(X)** 
+  * 모수 $\mu$의 95% 신뢰구간:
+  
+$$(\bar{y} - t_{n-1}(0.025) \frac{s}{\sqrt{n}} \ , \ \bar{y} + t_{n-1}(0.025) \frac{s}{\sqrt{n}})$$
+    
+  * 이러한 방식으로 여러 번 표본을 뽑아 신뢰구간을 구했을 때, 그중 95%는 모수 $\mu$를 포함할 것이다. 
+  * 빈도주의 추론의 신뢰구간은 **repeated sampling** 관점에서 해석되는 것으로, 모수 $\mu$에 대한 어떤 확률적 진술(probability statement)도 하지 못한다. 
+  
+
+```{r}
+# Frequentist approach
+# Confidence Interval of mu (data # = 62)
+upper <- mean(gangnam$speed) + qt(0.975,61) * sd(gangnam$speed)/sqrt(62)
+lower <- mean(gangnam$speed) - qt(0.975,61) * sd(gangnam$speed)/sqrt(62)
+ci <- c(lower, upper)
+ci
+```
+
+
+### Bayesian inference
+
+* 모수에 대한 직접적인 확률적 진술 가능 (probability statement about parameters)
+* 모수가 갖는 불확실성을 확률적으로 수량화 (**quantify uncertatinty**)
+
+```{r, warning=FALSE, message=FALSE}
+library(rstan)
+```
+
+### Stan code
+
+```{r}
+# bayes model
+code1 <- '
+data{
+  int N; // number of obsverations 
+  real y[N]; // speed value
+}
+
+parameters{
+  real mu; // mean
+  real<lower=0> sigma; // standard deviation
+}
+
+model{
+  y ~ normal(mu, sigma); // normal likelihood
+}
+
+generated quantities{
+  real y_pred;
+  y_pred = normal_rng(mu,sigma);
+}
+'
+# compile models
+model1 <- stan_model(model_code = code1, model_name="stanmodel")
+```
+
+### MCMC sampling
+```{r}
+list1 <- list(N=nrow(gangnam), y = gangnam$speed)
+fit1 <- sampling(model1, data = list1, seed = 123)
+```
+
+```{r}
+fit1
+```
+
+### Posterior distribution of $\mu$ ($\mu$의 사후 분포)
+
+```{r, warning=FALSE, message=FALSE}
+library(bayesplot)
+```
+
+```{r}
+mcmc_areas(fit1, "mu", prob = 0.95) +
+  ggtitle("Posterior distribution of mu", "with median and 95% interval")
+```
+
+### 95% Bayesian credible interval(95% 베이즈 신뢰구간/신용구간) (↔ 신뢰구간)
+
+* 평균 $\mu$의 95% 신용구간 = (17.23, 19.89)
+ * 모수 $\mu$가 (17.23, 19.89)에 포함될 확률이 95%다. **(O)** 
+ 
+ → 모수에 대한 직접적인 확률적 진술 가능 (probability statement about parameters)
+ 
+ → 모수가 갖는 불확실성을 확률적으로 수량화 (**quantify uncertatinty**)
+
+### Posterior probability(사후 확률) (↔ p-value)
+
+```{r}
+res <- extract(fit1)
+str(res)
+sum(res$mu > 20)/4000
+```
+
+* $\mu >20$일 사후 확률이 0.0162다. 
