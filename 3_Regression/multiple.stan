@@ -4,7 +4,7 @@ data{
   matrix[N,5] x; // x variable (mulitple)
 }
 
-parameters{
+parameters{ 
   real alpha;
   vector[5] beta;
   real<lower = 0> sigma;

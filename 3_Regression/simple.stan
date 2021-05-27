@@ -1,9 +1,9 @@
 data{
   int N; // obs. number
-  vector[N] y; // y variable (Score)
-  vector[N] x; // x variable (GDP)
-  int M;
-  vector[M] xreg;
+  vector[N] y;// y variable (Score)
+  vector[N] x;// x variable (GDP)
+  int M; // prediction
+  vector[M] xreg; // prediction
 }
 
 parameters{
